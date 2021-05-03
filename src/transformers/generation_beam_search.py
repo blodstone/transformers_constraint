@@ -381,7 +381,6 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
         next_beam_scores = torch.zeros((batch_size, self.group_size), dtype=next_scores.dtype, device=device)
         next_beam_tokens = torch.zeros((batch_size, self.group_size), dtype=next_tokens.dtype, device=device)
         next_beam_indices = torch.zeros((batch_size, self.group_size), dtype=next_indices.dtype, device=device)
-    
         for batch_idx, beam_hyp in enumerate(self._beam_hyps):
             if self._done[batch_idx]:
                 assert (
@@ -499,9 +498,9 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
         """
         each_k = 1
         device = scores.device
+        beam_size = beam_size * 2
+        self.num_cands = beam_size
         
-        self.num_cands = beam_size * 2
-
         # STEP 0: Preliminary. Prevent EOS for unfinished hyps across all batch items
         constraint_states = self.constraint_states
         if constraint_states and step > 0:
@@ -713,6 +712,7 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
         beams_buf = beams_buf[: self.num_cands]
         constraint_states = constraint_states[: self.num_cands]
         return scores_buf, indices_buf, beams_buf, constraint_states
+    
     
 class BeamHypotheses:
     def __init__(self, num_beams: int, max_length: int, length_penalty: float, early_stopping: bool):

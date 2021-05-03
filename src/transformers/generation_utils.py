@@ -1762,7 +1762,7 @@ class GenerationMixin:
             vocab_size = next_token_scores.shape[-1]
             next_token_scores = next_token_scores.view(batch_size, num_beams * vocab_size)
 
-            next_token_scores, next_indices, next_tokens = beam_scorer.step(
+            next_token_scores, next_tokens, next_indices = beam_scorer.step(
                 cur_len,
                 next_token_scores,
                 num_beams,
