@@ -381,6 +381,7 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
         next_beam_scores = torch.zeros((batch_size, self.group_size), dtype=next_scores.dtype, device=device)
         next_beam_tokens = torch.zeros((batch_size, self.group_size), dtype=next_tokens.dtype, device=device)
         next_beam_indices = torch.zeros((batch_size, self.group_size), dtype=next_indices.dtype, device=device)
+        new_constraint_states = [[None for _ in range(self.group_size)] for _ in range(batch_size)]
         for batch_idx, beam_hyp in enumerate(self._beam_hyps):
             if self._done[batch_idx]:
                 assert (
@@ -397,8 +398,8 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
         
             # next tokens for this sentence
             beam_idx = 0
-            for beam_token_rank, (next_token, next_score, next_index) in enumerate(
-                    zip(next_tokens[batch_idx], next_scores[batch_idx], next_indices[batch_idx])
+            for beam_token_rank, (next_token, next_score, next_index, constraint_state) in enumerate(
+                    zip(next_tokens[batch_idx], next_scores[batch_idx], next_indices[batch_idx], self.constraint_states[batch_idx])
             ):
                 batch_beam_idx = batch_idx * self.group_size + next_index
                 # add to generated hypotheses if end of sentence
@@ -416,6 +417,7 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
                     next_beam_scores[batch_idx, beam_idx] = next_score
                     next_beam_tokens[batch_idx, beam_idx] = next_token
                     next_beam_indices[batch_idx, beam_idx] = batch_beam_idx
+                    new_constraint_states[batch_idx][beam_idx] = constraint_state
                     beam_idx += 1
             
                 # once the beam for next step is full, don't add more tokens to it.
@@ -431,7 +433,7 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
             self._done[batch_idx] = self._done[batch_idx] or beam_hyp.is_done(
                 next_scores[batch_idx].max().item(), cur_len
             )
-    
+        self.constraint_states = new_constraint_states
         return UserDict(
             {
                 "next_beam_scores": next_beam_scores.view(-1),
@@ -498,8 +500,7 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
         """
         each_k = 1
         device = scores.device
-        beam_size = beam_size * 2
-        self.num_cands = beam_size
+        self.num_cands = beam_size * 2
         
         # STEP 0: Preliminary. Prevent EOS for unfinished hyps across all batch items
         constraint_states = self.constraint_states
