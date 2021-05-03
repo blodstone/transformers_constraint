@@ -1769,6 +1769,7 @@ class GenerationMixin:
                 batch_size,
                 vocab_size,
                 eos_token_id,
+                pad_token_id
             )
             # next_token_scores, next_tokens = torch.topk(
             #     next_token_scores, 2 * num_beams, dim=1, largest=True, sorted=True

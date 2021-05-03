@@ -467,11 +467,12 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
     def step(
         self,
         step: int,
-        scores: Optional[Tensor],
+        lprobs: Optional[Tensor],
         beam_size: int,
         batch_size: int,
         vocab_size: int,
-        eos_token_id: int
+        eos_token_id: int,
+        pad_token_id: int
     ):
         """
         A constrained step builds a large candidates list from the following:
@@ -499,7 +500,7 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
                 the new constraint states
         """
         each_k = 1
-        device = scores.device
+        device = lprobs.device
         self.num_cands = beam_size * 2
         
         # STEP 0: Preliminary. Prevent EOS for unfinished hyps across all batch items
@@ -507,23 +508,25 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
         if constraint_states and step > 0:
             not_finished_indices = []
             for sentno, sent_constraints in enumerate(constraint_states):
+                if self._done[sentno]:
+                    continue
                 for beamno, state in enumerate(sent_constraints):
                     index = sentno * beam_size + beamno
                     if not state.finished:
                         not_finished_indices.append(index)
             not_finished_indices = torch.tensor(not_finished_indices)
             if not_finished_indices.numel() > 0:
-                scores.view(batch_size * beam_size, -1)[
+                lprobs.view(batch_size * beam_size, -1)[
                     not_finished_indices, eos_token_id
                 ] = -math.inf
-        scores = scores.view(batch_size, beam_size, -1)
+        lprobs = lprobs.view(batch_size, beam_size, -1)
         if step == 0:
             # at the first step all hypotheses are equally likely, so use
             # only the first beam entry for each batch item
-            scores = scores[:, ::beam_size, :].contiguous()
+            lprobs = lprobs[:, ::beam_size, :].contiguous()
 
         top_prediction = torch.topk(
-            scores.view(batch_size, -1),
+            lprobs.view(batch_size, -1),
             self.num_cands,
         )
         scores_buf, indices_buf = top_prediction
@@ -538,7 +541,7 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
         # STEP 1: get top-1 from each hypothesis across all sentences in the batch
         if step > 0:
             top_scores, top_indices = torch.topk(
-                scores.view(batch_size * beam_size, -1),
+                lprobs.view(batch_size * beam_size, -1),
                 k=each_k,
                 dim=1,
             )
@@ -554,10 +557,15 @@ class ConstrainedBeamSearchScorer(BeamSearchScorer):
         new_indices_buf = torch.zeros((batch_size, 2 * beam_size), device=device).long()
         new_beams_buf = torch.zeros((batch_size, 2 * beam_size), device=device).long()
         for sentno, states in enumerate(constraint_states):
+            if self._done[sentno]:
+                new_scores_buf[sentno, :] = 0
+                new_indices_buf[sentno, :] = pad_token_id
+                new_beams_buf[sentno, :] = 0
+                continue
             scores, indices, beams, new_states = self.step_sentence(
                 step,
                 vocab_size,
-                scores[sentno],
+                lprobs[sentno],
                 constraint_states[sentno],
                 beams_buf[sentno].clone(),
                 indices_buf[sentno].clone(),
